@@ -1,11 +1,11 @@
-/***
-	Mid term project: Pulse Audio IP phone implementation.
-	Ravi Shankar (MS2016009)
-	References are from Pulse Audio documentaion.
-	File: IP_Phone_Speaker.c
-	Compile: cc -lpulse -lpulse-simple IP_Phone_Speaker.c -o Speaker.out
-	Command line arguments: PORT
-***/
+/**
+* Mid term project: Pulse Audio IP phone implementation.
+* Ravi Shankar (MS2016009)
+* References are from Pulse Audio documentaion.
+* File: IP_Phone_Speaker.c
+* Command line arguments: PORT
+* Compile : cc -lpulse -lpulse-simple -lrt IP_Phone_Speaker.c -o Periodic_Speaker.out
+*/
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -26,9 +26,67 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-/* Declare buffer size */
-#define BUFSIZE 64
+/* Timer includes */
+#include <time.h>
+#include <sys/time.h>
 
+
+/* Declare buffer size */
+#define BUFSIZE 4096
+#define CLOCKID CLOCK_REALTIME
+#define SIG SIGRTMIN
+
+
+
+pa_simple *s_out = NULL; /* PA stream for recording */
+				
+int ret = 1;
+int error;
+
+/* Server socket variables */
+int listenfd = 0, connfd = 0;
+	
+uint8_t buf[BUFSIZE];
+ssize_t r;
+
+static void timer_handler (int signum) {
+	/* Receive audio data...*/
+	if((r = recv(connfd, buf, sizeof(buf), 0)) <= 0)
+	{
+		if(r == 0)
+		{
+			printf("Connection terminated...\n");
+			return;
+
+		}
+		perror("read() failed :");
+		
+		goto finish;
+	}
+	
+	/* Play the audio stream */
+	if (pa_simple_write(s_out, buf, (size_t) r, &error) < 0) 
+	{
+		perror("pa_simple_write() failed:");
+		goto finish;
+	}
+	
+	/* Make sure that every single sample was played */
+    if (pa_simple_drain(s_out, &error) < 0) 
+	{
+        fprintf(stderr, __FILE__": pa_simple_drain() failed: %s\n", pa_strerror(error));
+        goto finish;
+    }
+	
+	finish : 
+	/*
+	* Its mandatory to clean up the pa streams
+	*/
+    if (s_out)
+	{
+        pa_simple_free(s_out);
+	}
+}
 int main(int argc, char*argv[]) 
 {
 
@@ -39,17 +97,20 @@ int main(int argc, char*argv[])
         .rate = 44100,
         .channels = 2
     };
-
-    pa_simple *s_out = NULL; /* PA stream for recording */
-				
-    int ret = 1;
-    int error;
-	
-	/* Server socket variables */
-	int listenfd = 0, connfd = 0;
   
 	struct sockaddr_in serv_addr;
  
+	/*Timer variables*/
+	timer_t timerid;
+	struct sigevent sev;
+	struct itimerspec its;
+	struct sigaction sa;
+
+	/* Timer interrupt handler declaration*/
+	memset (&sa, 0, sizeof (sa));
+	sa.sa_handler = timer_handler;
+	sigaction(SIG, &sa, NULL);
+	
 	char sendBuff[BUFSIZE];
 
 	listenfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -78,41 +139,27 @@ int main(int argc, char*argv[])
         fprintf(stderr, __FILE__": pa_simple_new() failed: %s\n", pa_strerror(error));
         goto finish;
     }
+	
+	sev.sigev_notify = SIGEV_SIGNAL;
+	sev.sigev_signo = SIG;
+	sev.sigev_value.sival_ptr = &timerid;
+	  
+	 /*Create timer*/ 
+	if (timer_create(CLOCKID, &sev, &timerid) == -1) {
+	     perror("timer_create");
+	}
 
-	// Loop forever... ( TODO: Handle SIGINT)
-    for (;;)
-	{
-        uint8_t buf[BUFSIZE];
-		ssize_t r;
-		
-		/* Receive audio data...*/
-		if((r = recv(connfd, buf, sizeof(buf), 0)) <= 0)
-		{
-			if(r == 0)
-			{
-				printf("Connection terminated...\n");
-				break;
+	 /*Set values : period = 20 ms*/
+	its.it_value.tv_sec = 0 ;
+	its.it_value.tv_nsec =  20;
+	its.it_interval.tv_sec = 0;
+	its.it_interval.tv_nsec = 20000000;	
 
-			}
-			perror("read() failed :");
-			
-			goto finish;
-		}
-		
-		/* Play the audio stream */
-		 if (pa_simple_write(s_out, buf, (size_t) r, &error) < 0) 
-		 {
-        	perror("pa_simple_write() failed:");
-        	goto finish;
-    	}
-        
-    }
-	/* Make sure that every single sample was played */
-    if (pa_simple_drain(s_out, &error) < 0) 
-	{
-        fprintf(stderr, __FILE__": pa_simple_drain() failed: %s\n", pa_strerror(error));
-        goto finish;
-    }
+	/*Start the 20ms timer*/
+	if (timer_settime(timerid, 0, &its, NULL) == -1)
+		perror("timer_settime");  
+
+	for(;;){} // Stay alive...
 
     ret = 0;
 
