@@ -3,7 +3,7 @@
   Name : Ravi Shankar (MS2016009)
   Mid-term project assignment (Term II)
   File: IP_Phone_Mic.c
-  Compile: cc -lpulse -lpulse-simple IP_Phone_Mic.c -o Mic.out
+  Compile: cc -lpulse -lpulse-simple IP_Phone_Mic.c -o g711_Mic.out
   Command line arguments: SERVER_IP PORT
 ***/
 
@@ -23,9 +23,12 @@
 #include <pulse/simple.h>
 #include <pulse/error.h>
 
+#include "g711.c"
+
+
 #define BUFSIZE 1024
 
-/* Functin to send data over socket in a loop */
+/* Function to send data over socket in a loop */
 static ssize_t loop_write(int fd, const void*data, size_t size) {
     ssize_t ret = 0;
 
@@ -91,13 +94,17 @@ int main(int argc, char*argv[]) {
 
     for (;;) {
         uint8_t buf[BUFSIZE];
-
+		int k = 0;
+		
         /* Record some data ... */
         if (pa_simple_read(s, buf, sizeof(buf), &error) < 0) {
             fprintf(stderr, __FILE__": pa_simple_read() failed: %s\n", pa_strerror(error));
             goto finish;
         }
 
+		/* Encoding using ulaw */
+		while(k++ <= BUFSIZE)	buf[k-1] = (uint8_t)linear2ulaw((int)buf[k-1]);
+		
         /* And send it to remote host */
         if (loop_write(sockfd, buf, sizeof(buf)) != sizeof(buf)) {
             fprintf(stderr, __FILE__": send() failed: %s\n", strerror(errno));

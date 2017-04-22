@@ -1,11 +1,11 @@
-/***
-	Mid term project: Pulse Audio IP phone implementation.
-	Ravi Shankar (MS2016009)
-	References are from Pulse Audio documentaion.
-	File: IP_Phone_Speaker.c
-	Compile: cc -lpulse -lpulse-simple IP_Phone_Speaker.c -o Speaker.out
-	Command line arguments: PORT
-***/
+/**
+* Mid term project: Pulse Audio IP phone implementation.
+* Ravi Shankar (MS2016009)
+* References are from Pulse Audio documentaion.
+* File: IP_Phone_Speaker.c
+* Compile: cc -lpulse -lpulse-simple IP_Phone_Speaker.c -o Speaker.out
+* Command line arguments: PORT
+*/
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -26,8 +26,11 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
+#include "g711.c"
+
+
 /* Declare buffer size */
-#define BUFSIZE 64
+#define BUFSIZE 1024
 
 int main(int argc, char*argv[]) 
 {
@@ -84,6 +87,7 @@ int main(int argc, char*argv[])
 	{
         uint8_t buf[BUFSIZE];
 		ssize_t r;
+		int k = 0;
 		
 		/* Receive audio data...*/
 		if((r = recv(connfd, buf, sizeof(buf), 0)) <= 0)
@@ -97,6 +101,10 @@ int main(int argc, char*argv[])
 			perror("read() failed :");
 			
 			goto finish;
+		}
+		/* Ulaw decoding... */
+		while(k++ <= BUFSIZE){
+			buf[k-1] = (uint8_t)ulaw2linear((int)buf[k-1]);
 		}
 		
 		/* Play the audio stream */
